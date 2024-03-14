@@ -38,7 +38,7 @@ class ProductResource extends Resource
     {
         return $table
             ->columns([
-                TextColumn::make('name'),
+                TextColumn::make('name')->sortable(),
                 TextColumn::make('amount'),
                 TextColumn::make('price')->money('BRL'),
                 TextColumn::make('slug'),

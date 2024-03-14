@@ -8,7 +8,21 @@ use Filament\Resources\Pages\EditRecord;
 
 class EditProduct extends EditRecord
 {
+
     protected static string $resource = ProductResource::class;
+
+    protected function mutateFormDataBeforeFill(array $data): array
+    {
+        $data['price'] = number_format(($data['price']), 2, ',','.');
+
+        return $data;
+    }
+    protected function mutateFormDataBeforeSave(array $data): array
+    {
+        $data['price'] = ((float) str_replace(['.',','],['','.'], $data['price']));
+ 
+        return $data;
+    }
 
     protected function getHeaderActions(): array
     {
