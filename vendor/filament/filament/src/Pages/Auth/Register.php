@@ -15,6 +15,7 @@ use Filament\Forms\Form;
 use Filament\Http\Responses\Auth\Contracts\RegistrationResponse;
 use Filament\Notifications\Auth\VerifyEmail;
 use Filament\Notifications\Notification;
+use Filament\Pages\Concerns\CanUseDatabaseTransactions;
 use Filament\Pages\Concerns\InteractsWithFormActions;
 use Filament\Pages\SimplePage;
 use Illuminate\Auth\EloquentUserProvider;
@@ -30,6 +31,7 @@ use Illuminate\Validation\Rules\Password;
  */
 class Register extends SimplePage
 {
+    use CanUseDatabaseTransactions;
     use InteractsWithFormActions;
     use WithRateLimiting;
 
@@ -74,9 +76,11 @@ class Register extends SimplePage
             return null;
         }
 
-        $data = $this->form->getState();
+        $user = $this->wrapInDatabaseTransaction(function () {
+            $data = $this->form->getState();
 
-        $user = $this->getUserModel()::create($data);
+            return $this->getUserModel()::create($data);
+        });
 
         event(new Registered($user));
 
@@ -159,6 +163,7 @@ class Register extends SimplePage
         return TextInput::make('password')
             ->label(__('filament-panels::pages/auth/register.form.password.label'))
             ->password()
+            ->revealable(filament()->arePasswordsRevealable())
             ->required()
             ->rule(Password::default())
             ->dehydrateStateUsing(fn ($state) => Hash::make($state))
@@ -171,6 +176,7 @@ class Register extends SimplePage
         return TextInput::make('passwordConfirmation')
             ->label(__('filament-panels::pages/auth/register.form.password_confirmation.label'))
             ->password()
+            ->revealable(filament()->arePasswordsRevealable())
             ->required()
             ->dehydrated(false);
     }

@@ -14,6 +14,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Collection;
 use Illuminate\Validation\ValidationException;
+use Throwable;
 
 use function Livewire\store;
 
@@ -34,7 +35,7 @@ trait HasBulkActions
      */
     public ?array $mountedTableBulkActionData = [];
 
-    protected EloquentCollection $cachedSelectedTableRecords;
+    protected EloquentCollection | Collection $cachedSelectedTableRecords;
 
     protected function configureTableBulkAction(BulkAction $action): void
     {
@@ -64,6 +65,8 @@ trait HasBulkActions
         $originallyMountedAction = $this->mountedTableBulkAction;
 
         try {
+            $action->beginDatabaseTransaction();
+
             if ($this->mountedTableBulkActionHasForm()) {
                 $action->callBeforeFormValidated();
 
@@ -79,16 +82,31 @@ trait HasBulkActions
             ]);
 
             $result = $action->callAfter() ?? $result;
+
+            $action->commitDatabaseTransaction();
         } catch (Halt $exception) {
+            $exception->shouldRollbackDatabaseTransaction() ?
+                $action->rollBackDatabaseTransaction() :
+                $action->commitDatabaseTransaction();
+
             return null;
         } catch (Cancel $exception) {
+            $exception->shouldRollbackDatabaseTransaction() ?
+                $action->rollBackDatabaseTransaction() :
+                $action->commitDatabaseTransaction();
         } catch (ValidationException $exception) {
+            $action->rollBackDatabaseTransaction();
+
             if (! $this->mountedTableBulkActionShouldOpenModal()) {
                 $action->resetArguments();
                 $action->resetFormData();
 
                 $this->unmountTableBulkAction();
             }
+
+            throw $exception;
+        } catch (Throwable $exception) {
+            $action->rollBackDatabaseTransaction();
 
             throw $exception;
         }
@@ -194,24 +212,14 @@ trait HasBulkActions
 
     public function mountedTableBulkActionShouldOpenModal(): bool
     {
-        $action = $this->getMountedTableBulkAction();
-
-        if ($action->isModalHidden()) {
-            return false;
-        }
-
-        return $action->hasCustomModalHeading() ||
-            $action->hasModalDescription() ||
-            $action->hasModalContent() ||
-            $action->hasModalContentFooter() ||
-            $action->getInfolist() ||
-            $this->mountedTableBulkActionHasForm();
+        return $this->getMountedTableBulkAction()->shouldOpenModal(
+            checkForFormUsing: $this->mountedTableBulkActionHasForm(...),
+        );
     }
 
     public function unmountTableBulkAction(bool $shouldCloseModal = true): void
     {
-        $this->mountedTableBulkAction = null;
-        $this->selectedTableRecords = [];
+        $this->resetMountedTableBulkActionProperties();
 
         if ($shouldCloseModal) {
             $this->closeTableBulkActionModal();
@@ -237,11 +245,10 @@ trait HasBulkActions
 
         if (! $this->getTable()->checksIfRecordIsSelectable()) {
             $records = $this->getTable()->selectsCurrentPageOnly() ?
-                $this->getTableRecords() :
-                $query;
+                $this->getTableRecords()->pluck($query->getModel()->getKeyName()) :
+                $query->pluck($query->getModel()->getQualifiedKeyName());
 
             return $records
-                ->pluck($query->getModel()->getQualifiedKeyName())
                 ->map(fn ($key): string => (string) $key)
                 ->all();
         }
@@ -277,13 +284,13 @@ trait HasBulkActions
 
         if (! $this->getTable()->checksIfRecordIsSelectable()) {
             $records = $this->getTable()->selectsCurrentPageOnly() ?
-                $this->getTableRecords()->filter(
-                    fn (Model $record) => $tableGrouping->getStringKey($record) === $group,
-                ) :
-                $query;
+                /** @phpstan-ignore-next-line */
+                $this->getTableRecords()
+                    ->filter(fn (Model $record): bool => $tableGrouping->getStringKey($record) === $group)
+                    ->pluck($query->getModel()->getKeyName()) :
+                $query->pluck($query->getModel()->getQualifiedKeyName());
 
             return $records
-                ->pluck($query->getModel()->getQualifiedKeyName())
                 ->map(fn ($key): string => (string) $key)
                 ->all();
         }
@@ -332,7 +339,7 @@ trait HasBulkActions
         return $this->getFilteredTableQuery()->count();
     }
 
-    public function getSelectedTableRecords(): EloquentCollection
+    public function getSelectedTableRecords(bool $shouldFetchSelectedRecords = true): EloquentCollection | Collection
     {
         if (isset($this->cachedSelectedTableRecords)) {
             return $this->cachedSelectedTableRecords;
@@ -340,20 +347,27 @@ trait HasBulkActions
 
         $table = $this->getTable();
 
-        if (! ($table->getRelationship() instanceof BelongsToMany && $table->allowsDuplicates())) {
+        if (
+            $shouldFetchSelectedRecords ||
+            (! ($table->getRelationship() instanceof BelongsToMany && $table->allowsDuplicates()))
+        ) {
             $query = $table->getQuery()->whereKey($this->selectedTableRecords);
             $this->applySortingToTableQuery($query);
 
-            foreach ($this->getTable()->getColumns() as $column) {
-                $column->applyEagerLoading($query);
-                $column->applyRelationshipAggregates($query);
+            if ($shouldFetchSelectedRecords) {
+                foreach ($this->getTable()->getColumns() as $column) {
+                    $column->applyEagerLoading($query);
+                    $column->applyRelationshipAggregates($query);
+                }
             }
 
             if ($table->shouldDeselectAllRecordsWhenFiltered()) {
                 $this->filterTableQuery($query);
             }
 
-            return $this->cachedSelectedTableRecords = $query->get();
+            return $this->cachedSelectedTableRecords = $shouldFetchSelectedRecords ?
+                $query->get() :
+                $query->pluck($query->getModel()->getQualifiedKeyName());
         }
 
         /** @var BelongsToMany $relationship */

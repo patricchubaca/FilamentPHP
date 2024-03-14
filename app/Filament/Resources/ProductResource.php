@@ -7,6 +7,7 @@ use App\Filament\Resources\ProductResource\RelationManagers;
 use App\Models\Product;
 use Faker\Provider\ar_EG\Text;
 use Filament\Forms;
+use Filament\Forms\Components\TextInput;
 use Filament\Forms\Form;
 use Filament\Resources\Resource;
 use Filament\Tables;
@@ -25,7 +26,11 @@ class ProductResource extends Resource
     {
         return $form
             ->schema([
-                //
+                TextInput::make('name')->label('Nome Produto'),
+                TextInput::make('description')->label('Descricão'),
+                TextInput::make('price')->label('Preço'),
+                TextInput::make('amount')->label('Quantidade'),
+                TextInput::make('slug')
             ]);
     }
 
@@ -35,9 +40,9 @@ class ProductResource extends Resource
             ->columns([
                 TextColumn::make('name'),
                 TextColumn::make('amount'),
-                TextColumn::make('price'),
+                TextColumn::make('price')->money('BRL'),
                 TextColumn::make('slug'),
-                TextColumn::make('created_at')
+                TextColumn::make('created_at')->date('d/m/y H:i:s')
             ])
             ->filters([
                 //
