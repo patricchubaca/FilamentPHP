@@ -13,8 +13,10 @@ use Filament\Resources\Resource;
 use Filament\Tables;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Table;
-use Illuminate\Database\Eloquent\Builder;
+
 use Illuminate\Database\Eloquent\SoftDeletingScope;
+use Filament\Tables\Filters\Filter;
+use Illuminate\Database\Eloquent\Builder;
 
 class ProductResource extends Resource
 {
@@ -45,7 +47,8 @@ class ProductResource extends Resource
                 TextColumn::make('created_at')->date('d/m/y H:i:s')
             ])
             ->filters([
-                //
+            
+                Filter::make('price')->query(fn(Builder $builder)=> $builder->where('price','>',3))
             ])
             ->actions([
                 Tables\Actions\EditAction::make(),
